@@ -18,6 +18,7 @@ class DailyPaperTests(unittest.TestCase):
         query = daily_paper.build_arxiv_query()
         self.assertIn('EMRI', query)
         self.assertIn('"extreme mass ratio inspiral"', query)
+        self.assertIn('IMRI', query)
 
     def test_max_results_is_large_enough(self):
         self.assertGreaterEqual(daily_paper.MAX_RESULTS, 100)

@@ -31,9 +31,17 @@ def should_send_empty_digest() -> bool:
 
 def build_arxiv_query() -> str:
     return (
-        'ti:EMRI OR abs:EMRI OR '
-        'ti:"extreme mass ratio inspiral" OR abs:"extreme mass ratio inspiral" OR '
-        'ti:"extreme-mass-ratio inspiral" OR abs:"extreme-mass-ratio inspiral"'
+        "("
+        'abs:EMRI OR abs:IMRI OR abs:"extreme mass ratio inspiral" OR abs:"mass-ratio inspiral" '
+        'OR ti:EMRI OR ti:IMRI OR ti:"extreme mass ratio inspiral" OR ti:"mass-ratio inspiral" '
+        'OR (abs:inspiral AND ('
+        'abs:LISA OR abs:Taiji OR abs:TianQin OR abs:Kerr OR abs:"self-force" '
+        'OR abs:"loss cone" OR abs:"nuclear star cluster" OR abs:millihertz OR abs:mHz '
+        'OR abs:Teukolsky OR abs:kludge OR abs:AAK OR abs:AK OR abs:adiabatic '
+        'OR abs:"two-timescale" OR abs:flux OR abs:osculating OR abs:relaxation '
+        'OR abs:"resonant relaxation" OR abs:"Schwarzschild barrier" '
+        'OR abs:cusp OR abs:"Bahcall-Wolf" OR abs:"mass segregation"'
+        ")))"
     )
 
 
