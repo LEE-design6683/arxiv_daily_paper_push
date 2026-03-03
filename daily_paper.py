@@ -2,6 +2,7 @@ import json
 import os
 import smtplib
 import re
+from html import escape
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
@@ -208,7 +209,22 @@ def fetch_abstract_and_updated(abs_url: str) -> tuple[str, Optional[datetime]]:
                 )
             except ValueError:
                 updated_at = None
-    return abstract, updated_at
+    return normalize_abstract_text(abstract), updated_at
+
+
+def normalize_abstract_text(text: str) -> str:
+    """Make arXiv abstract text more readable in email clients."""
+    if not text:
+        return ""
+    out = text
+    out = out.replace("\n", " ")
+    out = re.sub(r"\$([^$]+)\$", r"\1", out)
+    out = re.sub(r"\\text\{([^}]*)\}", r"\1", out)
+    out = re.sub(r"\\mathrm\{([^}]*)\}", r"\1", out)
+    out = re.sub(r"\\mathbf\{([^}]*)\}", r"\1", out)
+    out = re.sub(r"\\[a-zA-Z]+\b", "", out)
+    out = out.replace("{", "").replace("}", "")
+    return " ".join(out.split())
 
 
 def filter_emri_papers(entries: List[Dict[str, str]]) -> List[Dict[str, str]]:
@@ -260,7 +276,12 @@ def summarize_with_deepseek(paper):
     论文标题: {paper['title']}
     论文摘要: {paper['summary']}
 
-    请严格按此格式输出：
+    要求：
+    1）必须使用中文输出；
+    2）避免输出 LaTeX 公式源码，公式请转为文字解释；
+    3）不要输出英文小标题。
+
+    请严格按此格式输出（每段都要有内容）：
     【快速抓要点】: （简练的语言说明该研究解决了什么问题？提出了什么新的方法？得出了什么结果结论？）
     【逻辑推导】：（按“背景-破局-拆解”讲解作者思路，并给出1/2/3步骤）
     【技术细节】: （补充最关键的1-2个技术实现细节）
@@ -289,9 +310,69 @@ def summarize_with_deepseek(paper):
             return f"DeepSeek API 报错: {res_json['error'].get('message', res_json['error'])}"
         if "choices" not in res_json:
             return f"API 未预期响应: {json.dumps(res_json, ensure_ascii=False)}"
-        return res_json["choices"][0]["message"]["content"]
+        content = res_json["choices"][0]["message"].get("content", "").strip()
+        if not content:
+            return "DeepSeek 返回空内容。"
+        return content
     except Exception as e:
         return f"网络或系统错误: {str(e)}"
+
+
+def find_matched_keywords(paper: Dict[str, str], summary: str) -> Dict[str, List[str]]:
+    fields = {
+        "title": normalize_text(paper.get("title", "")),
+        "subjects": normalize_text(paper.get("subjects", "")),
+        "comments": normalize_text(paper.get("comments", "")),
+        "abstract": normalize_text(summary),
+    }
+    matched = {k: [] for k in fields}
+    for kw in EMRI_KEYWORDS:
+        k = normalize_text(kw)
+        for field_name, field_value in fields.items():
+            if k and k in field_value:
+                matched[field_name].append(kw)
+    return matched
+
+
+def _dedupe_keep_order(items: List[str]) -> List[str]:
+    seen = set()
+    out = []
+    for x in items:
+        if x not in seen:
+            seen.add(x)
+            out.append(x)
+    return out
+
+
+def highlight_keywords_html(text: str, keywords: List[str]) -> str:
+    safe = escape(text)
+    sorted_keywords = sorted(_dedupe_keep_order([k for k in keywords if k]), key=len, reverse=True)
+    for kw in sorted_keywords:
+        pattern = re.compile(re.escape(kw), re.IGNORECASE)
+        safe = pattern.sub(lambda m: f"<mark style='background:#fff3a3'>{escape(m.group(0))}</mark>", safe)
+    return safe
+
+
+def render_deepseek_html(raw_text: str) -> str:
+    raw_text = (raw_text or "").strip()
+    if not raw_text:
+        return "<p style='color:#b00020'><b>DeepSeek 解释缺失：</b>返回为空。</p>"
+    if "DeepSeek API 报错" in raw_text or "网络或系统错误" in raw_text or "API 未预期响应" in raw_text:
+        return f"<p style='color:#b00020'><b>DeepSeek 解释失败：</b>{escape(raw_text)}</p>"
+
+    matches = list(re.finditer(r"【([^】]+)】[:：]?", raw_text))
+    if not matches:
+        return f"<p>{escape(raw_text).replace(chr(10), '<br>')}</p>"
+
+    blocks = []
+    for idx, m in enumerate(matches):
+        title = escape(m.group(1))
+        start = m.end()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(raw_text)
+        body = raw_text[start:end].strip()
+        body_html = escape(body).replace("\n", "<br>")
+        blocks.append(f"<p><b>{title}</b><br>{body_html}</p>")
+    return "".join(blocks)
 
 
 def build_report_html(results):
@@ -301,8 +382,9 @@ def build_report_html(results):
         p["summary"] = summary
         p["updated_at"] = updated_at
         code_url = get_code_link(p["entry_id"])
-        deepseek_text = summarize_with_deepseek({"title": p["title"], "summary": summary}).replace("\n", "<br>")
-        return idx, p, code_url, deepseek_text
+        deepseek_raw = summarize_with_deepseek({"title": p["title"], "summary": summary})
+        matched_map = find_matched_keywords(p, summary)
+        return idx, p, code_url, deepseek_raw, matched_map
 
     sections = []
     total = min(len(results), MAX_DEEPSEEK_PAPERS)
@@ -311,25 +393,49 @@ def build_report_html(results):
     with ThreadPoolExecutor(max_workers=MAX_DEEPSEEK_CONCURRENCY) as pool:
         futures = [pool.submit(process_one, item) for item in subset]
         for fut in as_completed(futures):
-            i, p, code_url, deepseek_text = fut.result()
+            i, p, code_url, deepseek_raw, matched_map = fut.result()
             print(f"正在分析第 {i}/{total} 篇: {p['title']}")
             code_html = f' | <a href="{code_url}">💻 代码</a>' if code_url else ""
             summary = p.get("summary", "")
+            keyword_union = _dedupe_keep_order(
+                matched_map["title"] + matched_map["subjects"] + matched_map["comments"] + matched_map["abstract"]
+            )
+            highlighted_title = highlight_keywords_html(p["title"], keyword_union)
+            highlighted_summary = highlight_keywords_html(summary, keyword_union)
+            deepseek_html = render_deepseek_html(deepseek_raw)
             rendered[i] = (
                 p,
                 code_html,
-                deepseek_text,
-                summary,
+                deepseek_html,
+                highlighted_summary,
+                highlighted_title,
+                matched_map,
+                keyword_union,
             )
 
     for i in range(1, total + 1):
-        p, code_html, deepseek_text, summary = rendered[i]
+        p, code_html, deepseek_html, highlighted_summary, highlighted_title, matched_map, keyword_union = rendered[i]
+        keyword_chips = " ".join(
+            [f"<span style='background:#e8f0ff;padding:2px 6px;border-radius:10px'>{escape(k)}</span>" for k in keyword_union]
+        )
+        where_hits = []
+        if matched_map["title"]:
+            where_hits.append("标题")
+        if matched_map["subjects"]:
+            where_hits.append("分类")
+        if matched_map["comments"]:
+            where_hits.append("注释")
+        if matched_map["abstract"]:
+            where_hits.append("摘要")
+        where_text = "、".join(where_hits) if where_hits else "未定位"
         section = (
-            f"<h3>{i}. {p['title']}</h3>"
-            f"<p>分类: {p.get('category','')} | 作者: {p.get('authors','')}</p>"
+            f"<h3>{i}. {highlighted_title}</h3>"
+            f"<p>分类: {escape(p.get('category',''))} | 作者: {escape(p.get('authors',''))}</p>"
             f"<p>🔗 <a href=\"{p['entry_id']}\">原文</a>{code_html}</p>"
-            f"<p><b>原始摘要:</b> {summary}</p>"
-            f"<p>{deepseek_text}</p><hr>"
+            f"<p><b>命中关键词:</b> {keyword_chips or '无'}</p>"
+            f"<p><b>命中位置:</b> {escape(where_text)}</p>"
+            f"<p><b>原始摘要(已做可读化):</b> {highlighted_summary}</p>"
+            f"{deepseek_html}<hr>"
         )
         sections.append(section)
 
