@@ -42,6 +42,7 @@ SEND_EMPTY_DIGEST = getenv_nonempty("SEND_EMPTY_DIGEST", "true").lower() == "tru
 MAX_DEEPSEEK_PAPERS = int(getenv_nonempty("MAX_DEEPSEEK_PAPERS", "20"))
 MAX_DEEPSEEK_CONCURRENCY = int(getenv_nonempty("MAX_DEEPSEEK_CONCURRENCY", "5"))
 USE_ANNOUNCEMENT_WINDOW = getenv_nonempty("USE_ANNOUNCEMENT_WINDOW", "true").lower() == "true"
+ANNOUNCEMENT_WINDOWS_BACK = int(getenv_nonempty("ANNOUNCEMENT_WINDOWS_BACK", "2"))
 
 PWC_BASE_URL = "https://arxiv.paperswithcode.com/api/v0/papers/"
 BASE_ARXIV_URL = "https://arxiv.org"
@@ -79,6 +80,37 @@ EMRI_KEYWORDS = [
     "bahcall-wolf",
     "mass segregation",
 ]
+CORE_EMRI_TERMS = {
+    "emri",
+    "imri",
+    "extreme mass ratio inspiral",
+    "mass-ratio inspiral",
+    "extreme mass-ratio inspiral",
+}
+DETECTOR_TERMS = {"lisa", "taiji", "tianqin", "millihertz", "mhz"}
+DYNAMICS_TERMS = {
+    "self-force",
+    "second-order self-force",
+    "adiabatic",
+    "two-timescale",
+    "teukolsky",
+    "kerr geodesic",
+    "osculating",
+    "flux",
+    "aak",
+    "ak",
+    "kludge",
+    "analytic kludge",
+    "loss cone",
+    "relaxation",
+    "resonant relaxation",
+    "schwarzschild barrier",
+    "nuclear star cluster",
+    "cusp",
+    "bahcall-wolf",
+    "mass segregation",
+}
+COMPACT_OBJECT_TERMS = {"black hole", "kerr", "mass ratio", "inspiral"}
 HIGHLIGHT_EXCLUDE_KEYWORDS = {"ak", "flux"}
 
 
@@ -237,6 +269,33 @@ def filter_emri_papers(entries: List[Dict[str, str]]) -> List[Dict[str, str]]:
     return list(unique.values())
 
 
+def is_strict_emri_related(text: str) -> bool:
+    norm = normalize_text(text)
+    has_core = any(t in norm for t in CORE_EMRI_TERMS)
+    if has_core:
+        return True
+    has_detector = any(t in norm for t in DETECTOR_TERMS)
+    has_dynamics = any(t in norm for t in DYNAMICS_TERMS)
+    has_compact = any(t in norm for t in COMPACT_OBJECT_TERMS)
+    return has_detector and has_dynamics and has_compact
+
+
+def strict_filter_emri_papers(entries: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    kept = []
+    for p in entries:
+        text = " ".join(
+            [
+                p.get("title", ""),
+                p.get("subjects", ""),
+                p.get("comments", ""),
+                p.get("summary", ""),
+            ]
+        )
+        if is_strict_emri_related(text):
+            kept.append(p)
+    return kept
+
+
 def _latest_announcement_time_et(now_et: datetime) -> datetime:
     at_20 = now_et.replace(hour=20, minute=0, second=0, microsecond=0)
     if now_et >= at_20:
@@ -259,15 +318,28 @@ def announcement_window_utc(now_utc: Optional[datetime] = None) -> tuple[datetim
     return start_et.astimezone(timezone.utc), end_et.astimezone(timezone.utc)
 
 
-def filter_by_announcement_window(results: List[Dict[str, str]], now_utc: Optional[datetime] = None) -> List[Dict[str, str]]:
-    start_utc, end_utc = announcement_window_utc(now_utc)
+def announcement_windows_utc(now_utc: Optional[datetime] = None, back_windows: int = 1) -> List[tuple[datetime, datetime]]:
+    now_utc = now_utc or datetime.now(timezone.utc)
+    windows = []
+    end_now = now_utc
+    for _ in range(max(1, back_windows)):
+        start_utc, end_utc = announcement_window_utc(end_now)
+        windows.append((start_utc, end_utc))
+        end_now = start_utc - timedelta(seconds=1)
+    return windows
+
+
+def filter_by_announcement_window(
+    results: List[Dict[str, str]], now_utc: Optional[datetime] = None, back_windows: int = 1
+) -> List[Dict[str, str]]:
+    windows = announcement_windows_utc(now_utc, back_windows=back_windows)
     kept = []
     for p in results:
         updated_at = p.get("updated_at")
         if not updated_at:
             kept.append(p)
             continue
-        if start_utc < updated_at <= end_utc:
+        if any(start_utc < updated_at <= end_utc for start_utc, end_utc in windows):
             kept.append(p)
     return kept
 
@@ -495,8 +567,10 @@ def main():
             p["summary"] = summary
             p["updated_at"] = updated_at
 
+    emri_results = strict_filter_emri_papers(emri_results)
+
     if USE_ANNOUNCEMENT_WINDOW:
-        emri_results = filter_by_announcement_window(emri_results)
+        emri_results = filter_by_announcement_window(emri_results, back_windows=ANNOUNCEMENT_WINDOWS_BACK)
 
     if not emri_results:
         print("今日 new 列表中未检索到 EMRI 相关新论文。")

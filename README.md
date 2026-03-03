@@ -29,6 +29,7 @@
 - `MAX_DEEPSEEK_PAPERS`：默认 `20`，每日最多生成解释的论文数
 - `MAX_DEEPSEEK_CONCURRENCY`：默认 `5`，DeepSeek 并发请求数
 - `USE_ANNOUNCEMENT_WINDOW`：默认 `true`，按 arXiv 公告窗口过滤
+- `ANNOUNCEMENT_WINDOWS_BACK`：默认 `2`，回看最近几轮公告窗口（可增大结果量）
 
 ## 本地运行
 

@@ -39,4 +39,5 @@ jobs:
           MAX_DEEPSEEK_PAPERS: ${{ secrets.MAX_DEEPSEEK_PAPERS }}
           MAX_DEEPSEEK_CONCURRENCY: ${{ secrets.MAX_DEEPSEEK_CONCURRENCY }}
           USE_ANNOUNCEMENT_WINDOW: ${{ secrets.USE_ANNOUNCEMENT_WINDOW }}
+          ANNOUNCEMENT_WINDOWS_BACK: ${{ secrets.ANNOUNCEMENT_WINDOWS_BACK }}
         run: python daily_paper.py

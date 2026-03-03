@@ -44,6 +44,11 @@ class DailyPaperTests(unittest.TestCase):
         out = daily_paper.filter_by_announcement_window(items, now_utc=now_utc)
         self.assertEqual([i["id"] for i in out], ["1", "3"])
 
+    def test_strict_emri_filter(self):
+        self.assertTrue(daily_paper.is_strict_emri_related("EMRI waveform in Kerr background"))
+        self.assertTrue(daily_paper.is_strict_emri_related("LISA inspiral with self-force around black hole"))
+        self.assertFalse(daily_paper.is_strict_emri_related("pulsar machine learning with Taiji pipeline"))
+
     def test_getenv_nonempty_fallback(self):
         with patch.dict("os.environ", {"ARXIV_NEW_CATEGORIES": "   "}, clear=False):
             self.assertEqual(
