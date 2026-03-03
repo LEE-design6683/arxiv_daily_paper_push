@@ -1,56 +1,42 @@
-# 📚 ArXiv 每日论文推送助手
+# ArXiv EMRI Daily Digest
 
-自动抓取 ArXiv 最新 AI 论文，使用 DeepSeek 进行深度分析，并推送到飞书。
+每日抓取指定 arXiv 分类的 `new` 列表，用关键词筛选 EMRI/IMRI 相关论文，调用 DeepSeek 生成中文解释，并通过 SMTP 发送邮件。
 
-## ✨ 功能特性
+## 功能
 
-- 🔍 **自动抓取**：每日自动获取 ArXiv 最新 LLM / AI Agent / Deep Learning 相关论文
-- 🤖 **AI 深度分析**：调用 DeepSeek API 生成结构化中文解读：
-  - 【快速抓要点】核心问题与方法
-  - 【逻辑推导】起承转合还原作者思路
-  - 【技术细节】关键实现细节
-  - 【局限性】潜在不足
-  - 【专业知识解释】术语科普
-- 💻 **代码链接**：自动从 PapersWithCode 匹配开源代码
-- 📱 **飞书推送**：生成精美富文本卡片推送至飞书群
+- 按分类抓取 `https://arxiv.org/list/<category>/new`
+- 基于 EMRI 关键词本地筛选（标题/主题/注释）
+- 逐篇抓取原始摘要 + DeepSeek 结构化中文解读
+- 可选 PapersWithCode 代码链接
+- SMTP 邮件推送（QQ/163/Gmail 等）
+- 无结果时可发送空日报通知
+- HTTP 重试与退避（429/5xx）
 
-## 🚀 快速开始
+## 环境变量
 
-### 1. 环境准备
+- `DEEPSEEK_API_KEY`：必填
+- `DEEPSEEK_API_URL`：默认 `https://api.deepseek.com/v1/chat/completions`
+- `DEEPSEEK_MODEL`：默认 `deepseek-chat`
+- `SMTP_HOST`：如 `smtp.qq.com`
+- `SMTP_PORT`：如 `465`
+- `SMTP_USER`：邮箱账号
+- `SMTP_PASS`：邮箱 SMTP 授权码
+- `SMTP_USE_SSL`：`true/false`
+- `FROM_EMAIL`：发件人邮箱
+- `TO_EMAIL`：收件人邮箱
+- `ARXIV_NEW_CATEGORIES`：默认 `astro-ph,gr-qc,hep-th,hep-ph,math-ph`
+- `SEND_EMPTY_DIGEST`：默认 `true`
+- `MAX_DEEPSEEK_PAPERS`：默认 `20`，每日最多生成解释的论文数
+
+## 本地运行
 
 ```bash
-pip install arxiv requests
+pip install -r requirements.txt
+python daily_paper.py
 ```
 
-### 2.配置
+## GitHub Actions
 
-- 编辑 daily_paper.py，填写以下配置项：
+仓库已包含工作流：`.github/workflows/daily_emri_email.yml`。
 
-```python
-FEISHU_WEBHOOK = "https://open.feishu.cn/open-apis/bot/v2/hook/你的Webhook地址"
-DEEPSEEK_API_KEY = "你的DeepSeek API Key"
-DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"  # 或你的API地址
-```
-
-- 飞书 Webhook：在飞书群设置 → 添加机器人 → 自定义机器人 → 获取 Webhook 地址
-- DeepSeek API Key：在 DeepSeek 开放平台 获取
-
-### 3.设置每日自动运行（Windows 任务计划程序）
-
-1. 搜索打开「任务计划程序」
-2. 点击右侧「创建基本任务」
-3. 名称：ArXiv每日论文推送
-4. 触发器：选择「每天」，设置运行时间（如 09:00）
-5. 操作：选择「启动程序」
-6. 程序或脚本：C:\Users\你的用户名\Desktop\run_arxiv.bat（或实际路径）
-7. 起始于（可选）：C:\Users\你的用户名\Desktop
-8. 完成：勾选「当单击"完成"时，打开此任务属性的对话框」
-9. 高级设置（可选）：
-   「条件」→ 取消勾选「只有在计算机使用交流电源时才启动」
-   「设置」→ 勾选「如果任务失败，按以下频率重新启动」
-
-### 4.注意事项
-
-- 确保网络可访问 ArXiv、DeepSeek API 和飞书服务器
-- 建议先手动运行测试，确认配置无误后再设置定时任务
-- 如需修改论文查询关键词，编辑 daily_paper.py 中的 query 参数
+在仓库 `Settings -> Secrets and variables -> Actions` 中配置同名 Secrets 后即可定时运行。

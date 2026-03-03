@@ -8,6 +8,8 @@ from typing import Dict, List
 
 import requests
 from bs4 import BeautifulSoup
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
@@ -25,6 +27,7 @@ SMTP_USE_SSL = os.getenv("SMTP_USE_SSL", "true").lower() == "true"
 # Example: "astro-ph,gr-qc,hep-th,hep-ph,math-ph"
 ARXIV_NEW_CATEGORIES = os.getenv("ARXIV_NEW_CATEGORIES", "astro-ph,gr-qc,hep-th,hep-ph,math-ph")
 SEND_EMPTY_DIGEST = os.getenv("SEND_EMPTY_DIGEST", "true").lower() == "true"
+MAX_DEEPSEEK_PAPERS = int(os.getenv("MAX_DEEPSEEK_PAPERS", "20"))
 
 PWC_BASE_URL = "https://arxiv.paperswithcode.com/api/v0/papers/"
 BASE_ARXIV_URL = "https://arxiv.org"
@@ -63,6 +66,23 @@ EMRI_KEYWORDS = [
 ]
 
 
+def make_session() -> requests.Session:
+    session = requests.Session()
+    retry = Retry(
+        total=3,
+        backoff_factor=1.0,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET", "POST"],
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
+HTTP_SESSION = make_session()
+
+
 def parse_categories() -> List[str]:
     return [c.strip() for c in ARXIV_NEW_CATEGORIES.split(",") if c.strip()]
 
@@ -75,7 +95,9 @@ def extract_arxiv_id(arxiv_url: str) -> str:
 def get_code_link(arxiv_url: str):
     arxiv_id = extract_arxiv_id(arxiv_url)
     try:
-        r = requests.get(f"{PWC_BASE_URL}{arxiv_id}", timeout=10).json()
+        resp = HTTP_SESSION.get(f"{PWC_BASE_URL}{arxiv_id}", timeout=10)
+        resp.raise_for_status()
+        r = resp.json()
         if "official" in r and r["official"]:
             return r["official"].get("url")
     except Exception:
@@ -94,7 +116,7 @@ def is_emri_related(text: str) -> bool:
 
 def fetch_new_listings(category: str) -> List[Dict[str, str]]:
     url = f"{BASE_ARXIV_URL}/list/{category}/new"
-    resp = requests.get(url, timeout=30)
+    resp = HTTP_SESSION.get(url, timeout=30)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
 
@@ -140,7 +162,7 @@ def fetch_new_listings(category: str) -> List[Dict[str, str]]:
 
 
 def fetch_abstract(abs_url: str) -> str:
-    resp = requests.get(abs_url, timeout=30)
+    resp = HTTP_SESSION.get(abs_url, timeout=30)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
     block = soup.find("blockquote", class_="abstract")
@@ -186,7 +208,8 @@ def summarize_with_deepseek(paper):
     }
 
     try:
-        response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=90)
+        response = HTTP_SESSION.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=90)
+        response.raise_for_status()
         res_json = response.json()
         if "error" in res_json:
             return f"DeepSeek API 报错: {res_json['error'].get('message', res_json['error'])}"
@@ -199,8 +222,9 @@ def summarize_with_deepseek(paper):
 
 def build_report_html(results):
     sections = []
-    for i, p in enumerate(results, start=1):
-        print(f"正在分析第 {i}/{len(results)} 篇: {p['title']}")
+    total = min(len(results), MAX_DEEPSEEK_PAPERS)
+    for i, p in enumerate(results[:MAX_DEEPSEEK_PAPERS], start=1):
+        print(f"正在分析第 {i}/{total} 篇: {p['title']}")
 
         summary = p.get("summary", "")
         if not summary:
@@ -271,6 +295,11 @@ def main():
         return
 
     report_html = build_report_html(emri_results)
+    if len(emri_results) > MAX_DEEPSEEK_PAPERS:
+        report_html += (
+            f"<p>注：命中 {len(emri_results)} 篇，仅对前 {MAX_DEEPSEEK_PAPERS} 篇生成详细解释。"
+            "其余论文可在后续版本按需扩展。</p>"
+        )
     subject = f"ArXiv EMRI Daily Digest {datetime.now().strftime('%Y-%m-%d')}"
     send_email_smtp(subject, report_html)
     print(f"推送成功，共发送 {len(emri_results)} 篇。")
