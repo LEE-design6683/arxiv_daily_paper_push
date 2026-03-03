@@ -1,13 +1,27 @@
 import arxiv
 import requests
 import json
+import os
 from datetime import datetime, timedelta
 import time
 
 # --- 配置区 ---
-FEISHU_WEBHOOK = "https://open.feishu.cn/open-apis/bot/v2/hook/your_webhook"
-DEEPSEEK_API_KEY = "your_api_key"  
-DEEPSEEK_API_URL = "your_api_url"
+# 优先读取环境变量（GitHub Actions Secrets），未设置则使用下方默认值
+FEISHU_WEBHOOK = os.environ.get("FEISHU_WEBHOOK", "https://open.feishu.cn/open-apis/bot/v2/hook/your_webhook")
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "your_api_key")
+DEEPSEEK_API_URL = os.environ.get("DEEPSEEK_API_URL", "your_api_url")
+
+_PLACEHOLDERS = {
+    "FEISHU_WEBHOOK": ("your_webhook", FEISHU_WEBHOOK),
+    "DEEPSEEK_API_KEY": ("your_api_key", DEEPSEEK_API_KEY),
+    "DEEPSEEK_API_URL": ("your_api_url", DEEPSEEK_API_URL),
+}
+for _name, (_placeholder, _value) in _PLACEHOLDERS.items():
+    if _placeholder in _value:
+        raise EnvironmentError(
+            f"[配置错误] {_name} 尚未配置。\n"
+            "请通过环境变量或 GitHub Actions Secrets 设置该值，不要将密钥硬编码在代码中。"
+        )
 
 PWC_BASE_URL = "https://arxiv.paperswithcode.com/api/v0/papers/"
 
