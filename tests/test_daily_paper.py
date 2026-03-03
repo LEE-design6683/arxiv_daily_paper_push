@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 import daily_paper
 
@@ -42,6 +43,13 @@ class DailyPaperTests(unittest.TestCase):
         ]
         out = daily_paper.filter_by_announcement_window(items, now_utc=now_utc)
         self.assertEqual([i["id"] for i in out], ["1", "3"])
+
+    def test_getenv_nonempty_fallback(self):
+        with patch.dict("os.environ", {"ARXIV_NEW_CATEGORIES": "   "}, clear=False):
+            self.assertEqual(
+                daily_paper.getenv_nonempty("ARXIV_NEW_CATEGORIES", "astro-ph,gr-qc"),
+                "astro-ph,gr-qc",
+            )
 
 
 if __name__ == '__main__':

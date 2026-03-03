@@ -15,24 +15,32 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
-DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com/v1/chat/completions")
-DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+def getenv_nonempty(name: str, default: str) -> str:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    value = value.strip()
+    return value if value else default
 
-SMTP_HOST = os.getenv("SMTP_HOST", "smtp.qq.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
+
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+DEEPSEEK_API_URL = getenv_nonempty("DEEPSEEK_API_URL", "https://api.deepseek.com/v1/chat/completions")
+DEEPSEEK_MODEL = getenv_nonempty("DEEPSEEK_MODEL", "deepseek-chat")
+
+SMTP_HOST = getenv_nonempty("SMTP_HOST", "smtp.qq.com")
+SMTP_PORT = int(getenv_nonempty("SMTP_PORT", "465"))
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
 FROM_EMAIL = os.getenv("FROM_EMAIL", "")
 TO_EMAIL = os.getenv("TO_EMAIL", "")
-SMTP_USE_SSL = os.getenv("SMTP_USE_SSL", "true").lower() == "true"
+SMTP_USE_SSL = getenv_nonempty("SMTP_USE_SSL", "true").lower() == "true"
 
 # Example: "astro-ph,gr-qc,hep-th,hep-ph,math-ph"
-ARXIV_NEW_CATEGORIES = os.getenv("ARXIV_NEW_CATEGORIES", "astro-ph,gr-qc,hep-th,hep-ph,math-ph")
-SEND_EMPTY_DIGEST = os.getenv("SEND_EMPTY_DIGEST", "true").lower() == "true"
-MAX_DEEPSEEK_PAPERS = int(os.getenv("MAX_DEEPSEEK_PAPERS", "20"))
-MAX_DEEPSEEK_CONCURRENCY = int(os.getenv("MAX_DEEPSEEK_CONCURRENCY", "5"))
-USE_ANNOUNCEMENT_WINDOW = os.getenv("USE_ANNOUNCEMENT_WINDOW", "true").lower() == "true"
+ARXIV_NEW_CATEGORIES = getenv_nonempty("ARXIV_NEW_CATEGORIES", "astro-ph,gr-qc,hep-th,hep-ph,math-ph")
+SEND_EMPTY_DIGEST = getenv_nonempty("SEND_EMPTY_DIGEST", "true").lower() == "true"
+MAX_DEEPSEEK_PAPERS = int(getenv_nonempty("MAX_DEEPSEEK_PAPERS", "20"))
+MAX_DEEPSEEK_CONCURRENCY = int(getenv_nonempty("MAX_DEEPSEEK_CONCURRENCY", "5"))
+USE_ANNOUNCEMENT_WINDOW = getenv_nonempty("USE_ANNOUNCEMENT_WINDOW", "true").lower() == "true"
 
 PWC_BASE_URL = "https://arxiv.paperswithcode.com/api/v0/papers/"
 BASE_ARXIV_URL = "https://arxiv.org"
