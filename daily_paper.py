@@ -43,6 +43,7 @@ MAX_DEEPSEEK_PAPERS = int(getenv_nonempty("MAX_DEEPSEEK_PAPERS", "20"))
 MAX_DEEPSEEK_CONCURRENCY = int(getenv_nonempty("MAX_DEEPSEEK_CONCURRENCY", "5"))
 USE_ANNOUNCEMENT_WINDOW = getenv_nonempty("USE_ANNOUNCEMENT_WINDOW", "true").lower() == "true"
 ANNOUNCEMENT_WINDOWS_BACK = int(getenv_nonempty("ANNOUNCEMENT_WINDOWS_BACK", "2"))
+STRICT_EMRI_ONLY = getenv_nonempty("STRICT_EMRI_ONLY", "true").lower() == "true"
 
 PWC_BASE_URL = "https://arxiv.paperswithcode.com/api/v0/papers/"
 BASE_ARXIV_URL = "https://arxiv.org"
@@ -273,6 +274,8 @@ def filter_emri_papers(entries: List[Dict[str, str]]) -> List[Dict[str, str]]:
 def is_strict_emri_related(text: str) -> bool:
     norm = normalize_text(text)
     has_core = any(t in norm for t in CORE_EMRI_TERMS)
+    if STRICT_EMRI_ONLY:
+        return has_core
     if has_core:
         return True
     has_detector = any(t in norm for t in DETECTOR_TERMS)
