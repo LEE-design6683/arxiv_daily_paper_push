@@ -79,6 +79,7 @@ EMRI_KEYWORDS = [
     "bahcall-wolf",
     "mass segregation",
 ]
+HIGHLIGHT_EXCLUDE_KEYWORDS = {"ak", "flux"}
 
 
 def make_session() -> requests.Session:
@@ -282,6 +283,7 @@ def summarize_with_deepseek(paper):
     3）不要输出英文小标题。
 
     请严格按此格式输出（每段都要有内容）：
+    【摘要翻译】: （把论文摘要翻译成准确、通顺的中文）
     【快速抓要点】: （简练的语言说明该研究解决了什么问题？提出了什么新的方法？得出了什么结果结论？）
     【逻辑推导】：（按“背景-破局-拆解”讲解作者思路，并给出1/2/3步骤）
     【技术细节】: （补充最关键的1-2个技术实现细节）
@@ -346,7 +348,13 @@ def _dedupe_keep_order(items: List[str]) -> List[str]:
 
 def highlight_keywords_html(text: str, keywords: List[str]) -> str:
     safe = escape(text)
-    sorted_keywords = sorted(_dedupe_keep_order([k for k in keywords if k]), key=len, reverse=True)
+    sorted_keywords = sorted(
+        _dedupe_keep_order(
+            [k for k in keywords if k and normalize_text(k) not in HIGHLIGHT_EXCLUDE_KEYWORDS]
+        ),
+        key=len,
+        reverse=True,
+    )
     for kw in sorted_keywords:
         pattern = re.compile(re.escape(kw), re.IGNORECASE)
         safe = pattern.sub(lambda m: f"<mark style='background:#fff3a3'>{escape(m.group(0))}</mark>", safe)
@@ -400,6 +408,7 @@ def build_report_html(results):
             keyword_union = _dedupe_keep_order(
                 matched_map["title"] + matched_map["subjects"] + matched_map["comments"] + matched_map["abstract"]
             )
+            keyword_display = [k for k in keyword_union if normalize_text(k) not in HIGHLIGHT_EXCLUDE_KEYWORDS]
             highlighted_title = highlight_keywords_html(p["title"], keyword_union)
             highlighted_summary = highlight_keywords_html(summary, keyword_union)
             deepseek_html = render_deepseek_html(deepseek_raw)
@@ -410,7 +419,7 @@ def build_report_html(results):
                 highlighted_summary,
                 highlighted_title,
                 matched_map,
-                keyword_union,
+                keyword_display,
             )
 
     for i in range(1, total + 1):
