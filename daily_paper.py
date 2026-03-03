@@ -25,6 +25,10 @@ MAX_RESULTS = int(os.getenv("MAX_RESULTS", "200"))
 PWC_BASE_URL = "https://arxiv.paperswithcode.com/api/v0/papers/"
 
 
+def should_send_empty_digest() -> bool:
+    return os.getenv("SEND_EMPTY_DIGEST", "true").lower() == "true"
+
+
 def build_arxiv_query() -> str:
     return (
         'ti:EMRI OR abs:EMRI OR '
@@ -173,6 +177,11 @@ def main():
 
     if not results:
         print("今日暂无 EMRI 新论文。")
+        if should_send_empty_digest():
+            subject = f"ArXiv EMRI Daily Digest {datetime.now().strftime('%Y-%m-%d')}"
+            body = "<p>今日 arXiv new 中未检索到 EMRI 相关新论文。</p>"
+            send_email_smtp(subject, body)
+            print("已发送空结果通知邮件。")
         return
 
     report_html = build_report_html(results)

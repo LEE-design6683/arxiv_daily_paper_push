@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timezone
 
 import daily_paper
@@ -35,6 +36,14 @@ class DailyPaperTests(unittest.TestCase):
         filtered = daily_paper.filter_today_and_deduplicate(items, now=now)
         ids = [daily_paper.extract_arxiv_id(i.entry_id) for i in filtered]
         self.assertEqual(ids, ['2501.00001', '2501.00002'])
+
+    def test_send_empty_digest_default_true(self):
+        with patch.dict('os.environ', {}, clear=True):
+            self.assertTrue(daily_paper.should_send_empty_digest())
+
+    def test_send_empty_digest_respects_false(self):
+        with patch.dict('os.environ', {'SEND_EMPTY_DIGEST': 'false'}, clear=True):
+            self.assertFalse(daily_paper.should_send_empty_digest())
 
 
 if __name__ == '__main__':
