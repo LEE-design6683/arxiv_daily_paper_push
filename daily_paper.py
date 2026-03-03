@@ -96,17 +96,14 @@ DYNAMICS_TERMS = {
     "teukolsky",
     "kerr geodesic",
     "osculating",
-    "flux",
     "aak",
     "ak",
     "kludge",
     "analytic kludge",
     "loss cone",
-    "relaxation",
     "resonant relaxation",
     "schwarzschild barrier",
     "nuclear star cluster",
-    "cusp",
     "bahcall-wolf",
     "mass segregation",
 }
@@ -284,8 +281,9 @@ def is_strict_emri_related(text: str) -> bool:
     if has_detector:
         return False
 
-    # Keep dynamics/compact-related candidates, but suppress obvious LVK/LIGO/Virgo/KAGRA noise.
-    if (has_dynamics or has_compact) and not has_lvk_noise:
+    # Keep only when both dynamics-specific and compact-object signals exist;
+    # suppress obvious LVK/LIGO/Virgo/KAGRA noise.
+    if has_dynamics and has_compact and not has_lvk_noise:
         return True
     return False
 
