@@ -106,14 +106,15 @@ def summarize_with_deepseek(paper):
 
 
 def filter_today_and_deduplicate(results, now=None):
-    """只保留今天提交的论文，并按 arXiv id 去重。"""
+    """只保留今天更新的论文（更接近 arXiv new），并按 arXiv id 去重。"""
     now = now or datetime.now(timezone.utc)
     today = now.date()
 
     unique = {}
     for res in results:
-        published_date = res.published.astimezone(timezone.utc).date()
-        if published_date != today:
+        updated_at = getattr(res, "updated", None) or res.published
+        updated_date = updated_at.astimezone(timezone.utc).date()
+        if updated_date != today:
             continue
         paper_id = extract_arxiv_id(res.entry_id)
         if paper_id not in unique:
