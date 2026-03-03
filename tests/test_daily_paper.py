@@ -46,7 +46,9 @@ class DailyPaperTests(unittest.TestCase):
 
     def test_strict_emri_filter(self):
         self.assertTrue(daily_paper.is_strict_emri_related("EMRI waveform in Kerr background"))
-        self.assertTrue(daily_paper.is_strict_emri_related("LISA inspiral with self-force around black hole"))
+        self.assertFalse(daily_paper.is_strict_emri_related("LISA inspiral with self-force around black hole"))
+        self.assertTrue(daily_paper.is_strict_emri_related("self-force evolution in Kerr spacetime"))
+        self.assertFalse(daily_paper.is_strict_emri_related("LVK BBH event analysis with black hole spins"))
         self.assertFalse(daily_paper.is_strict_emri_related("pulsar machine learning with Taiji pipeline"))
 
     def test_getenv_nonempty_fallback(self):

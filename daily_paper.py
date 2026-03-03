@@ -111,6 +111,7 @@ DYNAMICS_TERMS = {
     "mass segregation",
 }
 COMPACT_OBJECT_TERMS = {"black hole", "kerr", "mass ratio", "inspiral"}
+LVK_NOISE_TERMS = {"lvk", "ligo", "virgo", "kagra", "binary neutron star", "bbh", "bns"}
 HIGHLIGHT_EXCLUDE_KEYWORDS = {"ak", "flux"}
 
 
@@ -277,7 +278,16 @@ def is_strict_emri_related(text: str) -> bool:
     has_detector = any(t in norm for t in DETECTOR_TERMS)
     has_dynamics = any(t in norm for t in DYNAMICS_TERMS)
     has_compact = any(t in norm for t in COMPACT_OBJECT_TERMS)
-    return has_detector and has_dynamics and has_compact
+    has_lvk_noise = any(t in norm for t in LVK_NOISE_TERMS)
+
+    # Detector-only papers (LISA/Taiji/TianQin) must explicitly mention EMRI/IMRI.
+    if has_detector:
+        return False
+
+    # Keep dynamics/compact-related candidates, but suppress obvious LVK/LIGO/Virgo/KAGRA noise.
+    if (has_dynamics or has_compact) and not has_lvk_noise:
+        return True
+    return False
 
 
 def strict_filter_emri_papers(entries: List[Dict[str, str]]) -> List[Dict[str, str]]:
@@ -515,7 +525,7 @@ def build_report_html(results):
             f"<p>🔗 <a href=\"{p['entry_id']}\">原文</a>{code_html}</p>"
             f"<p><b>命中关键词:</b> {keyword_chips or '无'}</p>"
             f"<p><b>命中位置:</b> {escape(where_text)}</p>"
-            f"<p><b>原始摘要(已做可读化):</b> {highlighted_summary}</p>"
+            f"<details><summary>关键词命中片段（英文原文）</summary><p>{highlighted_summary}</p></details>"
             f"{deepseek_html}<hr>"
         )
         sections.append(section)
