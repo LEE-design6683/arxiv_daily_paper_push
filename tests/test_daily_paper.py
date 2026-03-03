@@ -1,52 +1,28 @@
 import unittest
-from unittest.mock import patch
-from datetime import datetime, timezone
 
 import daily_paper
 
 
-class FakeResult:
-    def __init__(self, entry_id, title, summary, published, updated=None):
-        self.entry_id = entry_id
-        self.title = title
-        self.summary = summary
-        self.published = published
-        self.updated = updated if updated is not None else published
-
-
 class DailyPaperTests(unittest.TestCase):
-    def test_emri_query_contains_expected_terms(self):
-        query = daily_paper.build_arxiv_query()
-        self.assertIn('EMRI', query)
-        self.assertIn('"extreme mass ratio inspiral"', query)
-        self.assertIn('IMRI', query)
+    def test_keywords_include_emri_and_imri(self):
+        kws = [k.lower() for k in daily_paper.EMRI_KEYWORDS]
+        self.assertIn('emri', kws)
+        self.assertIn('imri', kws)
 
-    def test_max_results_is_large_enough(self):
-        self.assertGreaterEqual(daily_paper.MAX_RESULTS, 100)
+    def test_is_emri_related(self):
+        text = 'This work studies extreme mass ratio inspiral waveforms for LISA.'
+        self.assertTrue(daily_paper.is_emri_related(text))
 
-    def test_filter_today_and_deduplicate(self):
-        now = datetime.now(timezone.utc)
-        yesterday = now.replace(day=max(1, now.day - 1))
-
+    def test_filter_emri_papers_and_deduplicate(self):
         items = [
-            FakeResult('http://arxiv.org/abs/2501.00001v1', 'A', 's', now),
-            FakeResult('http://arxiv.org/abs/2501.00001v2', 'A2', 's', now),
-            FakeResult('http://arxiv.org/abs/2501.00002v1', 'B', 's', now),
-            FakeResult('http://arxiv.org/abs/2501.99999v1', 'Old', 's', yesterday),
-            FakeResult('http://arxiv.org/abs/2401.00003v3', 'Updated today', 's', yesterday, now),
+            {'id': '2501.00001', 'title': 'EMRI with Kerr geodesic', 'subjects': '', 'comments': ''},
+            {'id': '2501.00001', 'title': 'EMRI duplicate', 'subjects': '', 'comments': ''},
+            {'id': '2501.00002', 'title': 'Unrelated cosmology paper', 'subjects': '', 'comments': ''},
+            {'id': '2501.00003', 'title': 'Inspiral in LISA band', 'subjects': '', 'comments': ''},
         ]
-
-        filtered = daily_paper.filter_today_and_deduplicate(items, now=now)
-        ids = [daily_paper.extract_arxiv_id(i.entry_id) for i in filtered]
-        self.assertEqual(ids, ['2501.00001', '2501.00002', '2401.00003'])
-
-    def test_send_empty_digest_default_true(self):
-        with patch.dict('os.environ', {}, clear=True):
-            self.assertTrue(daily_paper.should_send_empty_digest())
-
-    def test_send_empty_digest_respects_false(self):
-        with patch.dict('os.environ', {'SEND_EMPTY_DIGEST': 'false'}, clear=True):
-            self.assertFalse(daily_paper.should_send_empty_digest())
+        out = daily_paper.filter_emri_papers(items)
+        ids = [i['id'] for i in out]
+        self.assertEqual(ids, ['2501.00001', '2501.00003'])
 
 
 if __name__ == '__main__':

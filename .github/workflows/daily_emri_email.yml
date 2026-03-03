@@ -34,5 +34,6 @@ jobs:
           SMTP_USE_SSL: ${{ secrets.SMTP_USE_SSL }}
           FROM_EMAIL: ${{ secrets.FROM_EMAIL }}
           TO_EMAIL: ${{ secrets.TO_EMAIL }}
-          MAX_RESULTS: ${{ secrets.MAX_RESULTS }}
+          ARXIV_NEW_CATEGORIES: ${{ secrets.ARXIV_NEW_CATEGORIES }}
+          SEND_EMPTY_DIGEST: ${{ secrets.SEND_EMPTY_DIGEST }}
         run: python daily_paper.py
