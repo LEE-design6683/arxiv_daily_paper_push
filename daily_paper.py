@@ -68,7 +68,6 @@ EMRI_KEYWORDS = [
     "osculating",
     "flux",
     "aak",
-    "ak",
     "kludge",
     "analytic kludge",
     "loss cone",
@@ -97,7 +96,6 @@ DYNAMICS_TERMS = {
     "kerr geodesic",
     "osculating",
     "aak",
-    "ak",
     "kludge",
     "analytic kludge",
     "loss cone",
@@ -157,7 +155,17 @@ def normalize_text(text: str) -> str:
 
 def is_emri_related(text: str) -> bool:
     norm = normalize_text(text)
-    return any(k in norm for k in EMRI_KEYWORDS)
+    return any(keyword_in_text(norm, k) for k in EMRI_KEYWORDS)
+
+
+def keyword_in_text(norm_text: str, keyword: str) -> bool:
+    k = normalize_text(keyword)
+    if not k:
+        return False
+    # Avoid accidental substring matches for very short terms.
+    if len(k) <= 3:
+        return re.search(rf"\b{re.escape(k)}\b", norm_text) is not None
+    return k in norm_text
 
 
 def fetch_new_listings(category: str) -> List[Dict[str, str]]:
@@ -411,7 +419,7 @@ def find_matched_keywords(paper: Dict[str, str], summary: str) -> Dict[str, List
     for kw in EMRI_KEYWORDS:
         k = normalize_text(kw)
         for field_name, field_value in fields.items():
-            if k and k in field_value:
+            if k and keyword_in_text(field_value, k):
                 matched[field_name].append(kw)
     return matched
 

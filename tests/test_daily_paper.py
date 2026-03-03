@@ -14,6 +14,7 @@ class DailyPaperTests(unittest.TestCase):
     def test_is_emri_related(self):
         text = 'This work studies extreme mass ratio inspiral waveforms for LISA.'
         self.assertTrue(daily_paper.is_emri_related(text))
+        self.assertFalse(daily_paper.is_emri_related("Predicting the peak energy of bursts"))
 
     def test_filter_emri_papers_and_deduplicate(self):
         items = [
