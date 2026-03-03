@@ -27,6 +27,8 @@
 - `ARXIV_NEW_CATEGORIES`：默认 `astro-ph,gr-qc,hep-th,hep-ph,math-ph`
 - `SEND_EMPTY_DIGEST`：默认 `true`
 - `MAX_DEEPSEEK_PAPERS`：默认 `20`，每日最多生成解释的论文数
+- `MAX_DEEPSEEK_CONCURRENCY`：默认 `5`，DeepSeek 并发请求数
+- `USE_ANNOUNCEMENT_WINDOW`：默认 `true`，按 arXiv 公告窗口过滤
 
 ## 本地运行
 

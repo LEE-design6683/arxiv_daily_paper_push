@@ -1,10 +1,13 @@
 import json
 import os
 import smtplib
-from datetime import datetime
+import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import Dict, List
+from typing import Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 import requests
 from bs4 import BeautifulSoup
@@ -28,9 +31,12 @@ SMTP_USE_SSL = os.getenv("SMTP_USE_SSL", "true").lower() == "true"
 ARXIV_NEW_CATEGORIES = os.getenv("ARXIV_NEW_CATEGORIES", "astro-ph,gr-qc,hep-th,hep-ph,math-ph")
 SEND_EMPTY_DIGEST = os.getenv("SEND_EMPTY_DIGEST", "true").lower() == "true"
 MAX_DEEPSEEK_PAPERS = int(os.getenv("MAX_DEEPSEEK_PAPERS", "20"))
+MAX_DEEPSEEK_CONCURRENCY = int(os.getenv("MAX_DEEPSEEK_CONCURRENCY", "5"))
+USE_ANNOUNCEMENT_WINDOW = os.getenv("USE_ANNOUNCEMENT_WINDOW", "true").lower() == "true"
 
 PWC_BASE_URL = "https://arxiv.paperswithcode.com/api/v0/papers/"
 BASE_ARXIV_URL = "https://arxiv.org"
+ET_TZ = ZoneInfo("America/New_York")
 
 EMRI_KEYWORDS = [
     "emri",
@@ -172,6 +178,31 @@ def fetch_abstract(abs_url: str) -> str:
     return text.replace("Abstract:", "", 1).strip()
 
 
+def fetch_abstract_and_updated(abs_url: str) -> tuple[str, Optional[datetime]]:
+    resp = HTTP_SESSION.get(abs_url, timeout=30)
+    resp.raise_for_status()
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    abstract = ""
+    block = soup.find("blockquote", class_="abstract")
+    if block:
+        abstract = block.get_text(" ", strip=True).replace("Abstract:", "", 1).strip()
+
+    updated_at = None
+    hist = soup.find("div", class_="submission-history")
+    if hist:
+        text = hist.get_text(" ", strip=True)
+        matches = re.findall(r"\[v\d+\]\s*([^()]+?UTC)", text)
+        if matches:
+            try:
+                updated_at = datetime.strptime(matches[-1].strip(), "%a, %d %b %Y %H:%M:%S %Z").replace(
+                    tzinfo=timezone.utc
+                )
+            except ValueError:
+                updated_at = None
+    return abstract, updated_at
+
+
 def filter_emri_papers(entries: List[Dict[str, str]]) -> List[Dict[str, str]]:
     unique = {}
     for p in entries:
@@ -179,6 +210,41 @@ def filter_emri_papers(entries: List[Dict[str, str]]) -> List[Dict[str, str]]:
         if is_emri_related(text) and p["id"] not in unique:
             unique[p["id"]] = p
     return list(unique.values())
+
+
+def _latest_announcement_time_et(now_et: datetime) -> datetime:
+    at_20 = now_et.replace(hour=20, minute=0, second=0, microsecond=0)
+    if now_et >= at_20:
+        latest = at_20
+    else:
+        latest = at_20 - timedelta(days=1)
+    while latest.weekday() >= 5:
+        latest -= timedelta(days=1)
+    return latest
+
+
+def announcement_window_utc(now_utc: Optional[datetime] = None) -> tuple[datetime, datetime]:
+    now_utc = now_utc or datetime.now(timezone.utc)
+    now_et = now_utc.astimezone(ET_TZ)
+    end_et = _latest_announcement_time_et(now_et)
+
+    start_et = end_et - timedelta(days=1)
+    while start_et.weekday() >= 5:
+        start_et -= timedelta(days=1)
+    return start_et.astimezone(timezone.utc), end_et.astimezone(timezone.utc)
+
+
+def filter_by_announcement_window(results: List[Dict[str, str]], now_utc: Optional[datetime] = None) -> List[Dict[str, str]]:
+    start_utc, end_utc = announcement_window_utc(now_utc)
+    kept = []
+    for p in results:
+        updated_at = p.get("updated_at")
+        if not updated_at:
+            kept.append(p)
+            continue
+        if start_utc < updated_at <= end_utc:
+            kept.append(p)
+    return kept
 
 
 def summarize_with_deepseek(paper):
@@ -221,21 +287,35 @@ def summarize_with_deepseek(paper):
 
 
 def build_report_html(results):
+    def process_one(idx_paper):
+        idx, p = idx_paper
+        summary, updated_at = fetch_abstract_and_updated(p["entry_id"])
+        p["summary"] = summary
+        p["updated_at"] = updated_at
+        code_url = get_code_link(p["entry_id"])
+        deepseek_text = summarize_with_deepseek({"title": p["title"], "summary": summary}).replace("\n", "<br>")
+        return idx, p, code_url, deepseek_text
+
     sections = []
     total = min(len(results), MAX_DEEPSEEK_PAPERS)
-    for i, p in enumerate(results[:MAX_DEEPSEEK_PAPERS], start=1):
-        print(f"正在分析第 {i}/{total} 篇: {p['title']}")
+    subset = list(enumerate(results[:MAX_DEEPSEEK_PAPERS], start=1))
+    rendered = {}
+    with ThreadPoolExecutor(max_workers=MAX_DEEPSEEK_CONCURRENCY) as pool:
+        futures = [pool.submit(process_one, item) for item in subset]
+        for fut in as_completed(futures):
+            i, p, code_url, deepseek_text = fut.result()
+            print(f"正在分析第 {i}/{total} 篇: {p['title']}")
+            code_html = f' | <a href="{code_url}">💻 代码</a>' if code_url else ""
+            summary = p.get("summary", "")
+            rendered[i] = (
+                p,
+                code_html,
+                deepseek_text,
+                summary,
+            )
 
-        summary = p.get("summary", "")
-        if not summary:
-            summary = fetch_abstract(p["entry_id"])
-            p["summary"] = summary
-
-        code_url = get_code_link(p["entry_id"])
-        code_html = f' | <a href="{code_url}">💻 代码</a>' if code_url else ""
-
-        deepseek_text = summarize_with_deepseek({"title": p["title"], "summary": summary}).replace("\n", "<br>")
-
+    for i in range(1, total + 1):
+        p, code_html, deepseek_text, summary = rendered[i]
         section = (
             f"<h3>{i}. {p['title']}</h3>"
             f"<p>分类: {p.get('category','')} | 作者: {p.get('authors','')}</p>"
@@ -284,6 +364,16 @@ def main():
             print(f"分类 {cat} 抓取失败: {e}")
 
     emri_results = filter_emri_papers(all_entries)
+
+    # Fetch abstract/update time before announcement-window filtering.
+    for p in emri_results:
+        if "summary" not in p or "updated_at" not in p:
+            summary, updated_at = fetch_abstract_and_updated(p["entry_id"])
+            p["summary"] = summary
+            p["updated_at"] = updated_at
+
+    if USE_ANNOUNCEMENT_WINDOW:
+        emri_results = filter_by_announcement_window(emri_results)
 
     if not emri_results:
         print("今日 new 列表中未检索到 EMRI 相关新论文。")

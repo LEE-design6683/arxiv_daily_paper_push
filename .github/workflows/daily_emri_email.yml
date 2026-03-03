@@ -36,4 +36,7 @@ jobs:
           TO_EMAIL: ${{ secrets.TO_EMAIL }}
           ARXIV_NEW_CATEGORIES: ${{ secrets.ARXIV_NEW_CATEGORIES }}
           SEND_EMPTY_DIGEST: ${{ secrets.SEND_EMPTY_DIGEST }}
+          MAX_DEEPSEEK_PAPERS: ${{ secrets.MAX_DEEPSEEK_PAPERS }}
+          MAX_DEEPSEEK_CONCURRENCY: ${{ secrets.MAX_DEEPSEEK_CONCURRENCY }}
+          USE_ANNOUNCEMENT_WINDOW: ${{ secrets.USE_ANNOUNCEMENT_WINDOW }}
         run: python daily_paper.py

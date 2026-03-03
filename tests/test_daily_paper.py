@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime, timezone
 
 import daily_paper
 
@@ -23,6 +24,24 @@ class DailyPaperTests(unittest.TestCase):
         out = daily_paper.filter_emri_papers(items)
         ids = [i['id'] for i in out]
         self.assertEqual(ids, ['2501.00001', '2501.00003'])
+
+    def test_announcement_window(self):
+        now_utc = datetime(2026, 3, 3, 3, 0, 0, tzinfo=timezone.utc)
+        start_utc, end_utc = daily_paper.announcement_window_utc(now_utc)
+        self.assertLess(start_utc, end_utc)
+
+    def test_filter_by_announcement_window(self):
+        now_utc = datetime(2026, 3, 3, 3, 0, 0, tzinfo=timezone.utc)
+        start_utc, end_utc = daily_paper.announcement_window_utc(now_utc)
+        inside = start_utc + (end_utc - start_utc) / 2
+        outside = start_utc - (end_utc - start_utc)
+        items = [
+            {"id": "1", "updated_at": inside},
+            {"id": "2", "updated_at": outside},
+            {"id": "3", "updated_at": None},
+        ]
+        out = daily_paper.filter_by_announcement_window(items, now_utc=now_utc)
+        self.assertEqual([i["id"] for i in out], ["1", "3"])
 
 
 if __name__ == '__main__':
