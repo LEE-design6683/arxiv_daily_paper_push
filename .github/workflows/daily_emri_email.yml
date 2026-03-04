@@ -3,7 +3,7 @@ name: Daily EMRI Digest
 on:
   workflow_dispatch:
   schedule:
-    - cron: '30 2 * * *' # 10:30 Asia/Shanghai
+    - cron: '17 2 * * *' # 10:17 Asia/Shanghai (less crowded minute)
 
 jobs:
   run:
@@ -12,17 +12,80 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Guard Duplicate Daily Send
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_FILE: daily_emri_email.yml
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+          from datetime import datetime, timezone
+          from zoneinfo import ZoneInfo
+
+          event_name = os.environ["EVENT_NAME"]
+          if event_name != "schedule":
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+                  f.write("should_run=true\n")
+              print("Non-schedule event; proceed.")
+              raise SystemExit(0)
+
+          repo = os.environ["REPO"]
+          token = os.environ["GH_TOKEN"]
+          run_id = int(os.environ["RUN_ID"])
+          workflow_file = os.environ["WORKFLOW_FILE"]
+
+          url = f"https://api.github.com/repos/{repo}/actions/workflows/{workflow_file}/runs?event=schedule&status=completed&per_page=30"
+          req = urllib.request.Request(
+              url,
+              headers={
+                  "Authorization": f"Bearer {token}",
+                  "Accept": "application/vnd.github+json",
+                  "User-Agent": "github-actions-guard",
+              },
+          )
+          with urllib.request.urlopen(req, timeout=30) as resp:
+              data = json.loads(resp.read().decode("utf-8"))
+
+          tz = ZoneInfo("Asia/Shanghai")
+          today_cn = datetime.now(timezone.utc).astimezone(tz).date()
+          already_sent = False
+
+          for run in data.get("workflow_runs", []):
+              if int(run.get("id", 0)) == run_id:
+                  continue
+              started = run.get("run_started_at")
+              if not started:
+                  continue
+              dt = datetime.strptime(started, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).astimezone(tz)
+              if dt.date() == today_cn and run.get("conclusion") == "success":
+                  already_sent = True
+                  break
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"should_run={'false' if already_sent else 'true'}\n")
+          print("Already sent today:", already_sent)
+          PY
+
       - name: Setup Python
+        if: steps.guard.outputs.should_run == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install dependencies
+        if: steps.guard.outputs.should_run == 'true'
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Run daily digest
+        if: steps.guard.outputs.should_run == 'true'
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           DEEPSEEK_API_URL: ${{ secrets.DEEPSEEK_API_URL }}
@@ -41,3 +104,7 @@ jobs:
           USE_ANNOUNCEMENT_WINDOW: ${{ secrets.USE_ANNOUNCEMENT_WINDOW }}
           ANNOUNCEMENT_WINDOWS_BACK: ${{ secrets.ANNOUNCEMENT_WINDOWS_BACK }}
         run: python daily_paper.py
+
+      - name: Skip Notice
+        if: steps.guard.outputs.should_run == 'false'
+        run: echo "A successful scheduled run already sent today (Asia/Shanghai), skip duplicate send."
