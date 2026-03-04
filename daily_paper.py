@@ -251,6 +251,14 @@ def fetch_abstract_and_updated(abs_url: str) -> tuple[str, Optional[datetime]]:
     return normalize_abstract_text(abstract), updated_at
 
 
+def safe_fetch_abstract_and_updated(abs_url: str) -> tuple[str, Optional[datetime]]:
+    try:
+        return fetch_abstract_and_updated(abs_url)
+    except Exception as e:
+        print(f"获取摘要失败，跳过该篇详情: {abs_url} | {e}")
+        return "", None
+
+
 def normalize_abstract_text(text: str) -> str:
     """Make arXiv abstract text more readable in email clients."""
     if not text:
@@ -474,7 +482,7 @@ def render_deepseek_html(raw_text: str) -> str:
 def build_report_html(results):
     def process_one(idx_paper):
         idx, p = idx_paper
-        summary, updated_at = fetch_abstract_and_updated(p["entry_id"])
+        summary, updated_at = safe_fetch_abstract_and_updated(p["entry_id"])
         p["summary"] = summary
         p["updated_at"] = updated_at
         code_url = get_code_link(p["entry_id"])
@@ -579,7 +587,7 @@ def main():
     # Fetch abstract/update time before announcement-window filtering.
     for p in emri_results:
         if "summary" not in p or "updated_at" not in p:
-            summary, updated_at = fetch_abstract_and_updated(p["entry_id"])
+            summary, updated_at = safe_fetch_abstract_and_updated(p["entry_id"])
             p["summary"] = summary
             p["updated_at"] = updated_at
 
