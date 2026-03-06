@@ -11,6 +11,7 @@ from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 import requests
+import yaml
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -47,67 +48,10 @@ ANNOUNCEMENT_WINDOWS_BACK = int(getenv_nonempty("ANNOUNCEMENT_WINDOWS_BACK", "2"
 PWC_BASE_URL = "https://arxiv.paperswithcode.com/api/v0/papers/"
 BASE_ARXIV_URL = "https://arxiv.org"
 ET_TZ = ZoneInfo("America/New_York")
+TOPICS_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "topics.yaml")
 
-EMRI_KEYWORDS = [
-    "emri",
-    "imri",
-    "extreme mass ratio inspiral",
-    "mass-ratio inspiral",
-    "extreme mass-ratio inspiral",
-    "lisa",
-    "taiji",
-    "tianqin",
-    "millihertz",
-    "mhz",
-    "self-force",
-    "second-order self-force",
-    "adiabatic",
-    "two-timescale",
-    "teukolsky",
-    "kerr geodesic",
-    "osculating",
-    "flux",
-    "aak",
-    "kludge",
-    "analytic kludge",
-    "loss cone",
-    "relaxation",
-    "resonant relaxation",
-    "schwarzschild barrier",
-    "nuclear star cluster",
-    "cusp",
-    "bahcall-wolf",
-    "mass segregation",
-]
-CORE_EMRI_TERMS = {
-    "emri",
-    "imri",
-    "extreme mass ratio inspiral",
-    "mass-ratio inspiral",
-    "extreme mass-ratio inspiral",
-}
-DETECTOR_TERMS = {"lisa", "taiji", "tianqin", "millihertz", "mhz"}
-DYNAMICS_TERMS = {
-    "self-force",
-    "second-order self-force",
-    "adiabatic",
-    "two-timescale",
-    "teukolsky",
-    "kerr geodesic",
-    "osculating",
-    "aak",
-    "kludge",
-    "analytic kludge",
-    "loss cone",
-    "resonant relaxation",
-    "schwarzschild barrier",
-    "nuclear star cluster",
-    "bahcall-wolf",
-    "mass segregation",
-}
-COMPACT_OBJECT_TERMS = {"black hole", "kerr", "mass ratio", "inspiral"}
-LVK_NOISE_TERMS = {"lvk", "ligo", "virgo", "kagra", "binary neutron star", "bbh", "bns"}
-HIGHLIGHT_EXCLUDE_KEYWORDS = {"ak", "flux"}
+LVK_NOISE_TERMS = {"lvk", "ligo", "virgo", "kagra", "binary neutron star", "bbh", "bns", "q~1"}
+HIGHLIGHT_EXCLUDE_KEYWORDS = {"ak"}
 
 
 def make_session() -> requests.Session:
@@ -125,6 +69,22 @@ def make_session() -> requests.Session:
 
 
 HTTP_SESSION = make_session()
+
+
+def load_topics_config() -> Dict[str, Dict[str, object]]:
+    with open(TOPICS_CONFIG_PATH, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+TOPICS_CONFIG = load_topics_config()
+EMRI_KEYWORDS = sorted(
+    {
+        " ".join(str(term).lower().split())
+        for bucket_name, bucket in TOPICS_CONFIG.items()
+        if bucket_name not in {"negative_terms", "thresholds"}
+        for term in bucket.get("terms", [])
+    }
+)
 
 
 def parse_categories() -> List[str]:
@@ -283,41 +243,50 @@ def filter_emri_papers(entries: List[Dict[str, str]]) -> List[Dict[str, str]]:
     return list(unique.values())
 
 
-def is_strict_emri_related(text: str) -> bool:
-    norm = normalize_text(text)
-    has_core = any(t in norm for t in CORE_EMRI_TERMS)
-    if has_core:
-        return True
-    has_detector = any(t in norm for t in DETECTOR_TERMS)
-    has_dynamics = any(t in norm for t in DYNAMICS_TERMS)
-    has_compact = any(t in norm for t in COMPACT_OBJECT_TERMS)
-    has_lvk_noise = any(t in norm for t in LVK_NOISE_TERMS)
-
-    # Detector-only papers (LISA/Taiji/TianQin) must explicitly mention EMRI/IMRI.
-    if has_detector:
-        return False
-
-    # Keep only when both dynamics-specific and compact-object signals exist;
-    # suppress obvious LVK/LIGO/Virgo/KAGRA noise.
-    if has_dynamics and has_compact and not has_lvk_noise:
-        return True
-    return False
+def bucket_matches(norm_text: str, bucket_name: str) -> List[str]:
+    bucket = TOPICS_CONFIG[bucket_name]
+    return [term for term in bucket.get("terms", []) if keyword_in_text(norm_text, term)]
 
 
-def strict_filter_emri_papers(entries: List[Dict[str, str]]) -> List[Dict[str, str]]:
-    kept = []
-    for p in entries:
-        text = " ".join(
-            [
-                p.get("title", ""),
-                p.get("subjects", ""),
-                p.get("comments", ""),
-                p.get("summary", ""),
-            ]
-        )
-        if is_strict_emri_related(text):
-            kept.append(p)
-    return kept
+def score_paper_relevance(paper: Dict[str, str]) -> Dict[str, object]:
+    norm_text = normalize_text(
+        " ".join([paper.get("title", ""), paper.get("subjects", ""), paper.get("comments", ""), paper.get("summary", "")])
+    )
+
+    negative_hits = bucket_matches(norm_text, "negative_terms")
+    if negative_hits:
+        return {"score": 0, "decision": "discard", "bucket_hits": {}, "reason": f"命中排除词: {', '.join(negative_hits)}"}
+
+    if any(keyword_in_text(norm_text, term) for term in LVK_NOISE_TERMS):
+        return {"score": 0, "decision": "discard", "bucket_hits": {}, "reason": "命中等质量/LVK噪声语境"}
+
+    hits = {
+        "direct_emri": bucket_matches(norm_text, "direct_emri"),
+        "dynamics": bucket_matches(norm_text, "dynamics"),
+        "waveform": bucket_matches(norm_text, "waveform"),
+        "detection": bucket_matches(norm_text, "detection"),
+        "context_terms": bucket_matches(norm_text, "context_terms"),
+    }
+
+    score = sum(TOPICS_CONFIG[name]["weight"] for name, matched in hits.items() if matched)
+
+    # Dynamics/waveform/detection terms without any EMRI context should not rank high.
+    if (hits["dynamics"] or hits["waveform"] or hits["detection"]) and not hits["context_terms"] and not hits["direct_emri"]:
+        score = min(score, TOPICS_CONFIG["thresholds"]["optional"] - 1)
+
+    thresholds = TOPICS_CONFIG["thresholds"]
+    if score >= thresholds["core"]:
+        decision = "core"
+    elif score >= thresholds["relevant"]:
+        decision = "relevant"
+    elif score >= thresholds["optional"]:
+        decision = "optional"
+    else:
+        decision = "discard"
+
+    matched_labels = [TOPICS_CONFIG[name]["label"] for name, matched in hits.items() if matched and name != "context_terms"]
+    reason = "；".join(matched_labels) if matched_labels else "未形成足够的 EMRI 相关主题组合"
+    return {"score": score, "decision": decision, "bucket_hits": hits, "reason": reason}
 
 
 def _latest_announcement_time_et(now_et: datetime) -> datetime:
@@ -537,6 +506,8 @@ def build_report_html(results):
             f"<h3>{i}. {highlighted_title}</h3>"
             f"<p>分类: {escape(p.get('category',''))} | 作者: {escape(p.get('authors',''))}</p>"
             f"<p>🔗 <a href=\"{p['entry_id']}\">原文</a>{code_html}</p>"
+            f"<p><b>相关性评分:</b> {p.get('relevance_score', 0)} | <b>推送级别:</b> {escape(p.get('relevance_decision', ''))}</p>"
+            f"<p><b>相关主题:</b> {escape(p.get('relevance_reason', ''))}</p>"
             f"<p><b>命中关键词:</b> {keyword_chips or '无'}</p>"
             f"<p><b>命中位置:</b> {escape(where_text)}</p>"
             f"<details><summary>关键词命中片段（英文原文）</summary><p>{highlighted_summary}</p></details>"
@@ -591,10 +562,19 @@ def main():
             p["summary"] = summary
             p["updated_at"] = updated_at
 
-    emri_results = strict_filter_emri_papers(emri_results)
-
     if USE_ANNOUNCEMENT_WINDOW:
         emri_results = filter_by_announcement_window(emri_results, back_windows=ANNOUNCEMENT_WINDOWS_BACK)
+
+    scored_results = []
+    for p in emri_results:
+        relevance = score_paper_relevance(p)
+        p["relevance_score"] = relevance["score"]
+        p["relevance_decision"] = relevance["decision"]
+        p["relevance_reason"] = relevance["reason"]
+        if relevance["decision"] != "discard":
+            scored_results.append(p)
+
+    emri_results = sorted(scored_results, key=lambda item: item.get("relevance_score", 0), reverse=True)
 
     if not emri_results:
         print("今日 new 列表中未检索到 EMRI 相关新论文。")

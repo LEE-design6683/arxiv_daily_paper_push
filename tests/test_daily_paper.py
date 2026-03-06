@@ -45,12 +45,11 @@ class DailyPaperTests(unittest.TestCase):
         out = daily_paper.filter_by_announcement_window(items, now_utc=now_utc)
         self.assertEqual([i["id"] for i in out], ["1", "3"])
 
-    def test_strict_emri_filter(self):
-        self.assertTrue(daily_paper.is_strict_emri_related("EMRI waveform in Kerr background"))
-        self.assertFalse(daily_paper.is_strict_emri_related("LISA inspiral with self-force around black hole"))
-        self.assertTrue(daily_paper.is_strict_emri_related("self-force evolution in Kerr spacetime"))
-        self.assertFalse(daily_paper.is_strict_emri_related("LVK BBH event analysis with black hole spins"))
-        self.assertFalse(daily_paper.is_strict_emri_related("pulsar machine learning with Taiji pipeline"))
+    def test_score_discards_lvk_noise(self):
+        result = daily_paper.score_paper_relevance(
+            {"title": "LVK BBH event analysis with black hole spins", "subjects": "", "comments": "", "summary": ""}
+        )
+        self.assertEqual(result["decision"], "discard")
 
     def test_getenv_nonempty_fallback(self):
         with patch.dict("os.environ", {"ARXIV_NEW_CATEGORIES": "   "}, clear=False):
@@ -58,6 +57,33 @@ class DailyPaperTests(unittest.TestCase):
                 daily_paper.getenv_nonempty("ARXIV_NEW_CATEGORIES", "astro-ph,gr-qc"),
                 "astro-ph,gr-qc",
             )
+
+    def test_topic_config_loaded(self):
+        config = daily_paper.load_topics_config()
+        self.assertIn("direct_emri", config)
+        self.assertIn("dynamics", config)
+        self.assertNotIn("flux", config["waveform"]["terms"])
+
+    def test_scoring_prefers_emri_ecosystem_topics(self):
+        lunar = daily_paper.score_paper_relevance(
+            {
+                "title": "Flux Estimates and Detection Prospects for Lunar Geoneutrinos",
+                "subjects": "",
+                "comments": "",
+                "summary": "",
+            }
+        )
+        emri = daily_paper.score_paper_relevance(
+            {
+                "title": "Resonant relaxation and mass segregation in nuclear star clusters for EMRI formation",
+                "subjects": "",
+                "comments": "",
+                "summary": "",
+            }
+        )
+        self.assertLess(lunar["score"], emri["score"])
+        self.assertEqual(lunar["decision"], "discard")
+        self.assertNotEqual(emri["decision"], "discard")
 
 
 if __name__ == '__main__':

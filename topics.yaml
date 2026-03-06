@@ -1,0 +1,116 @@
+direct_emri:
+  weight: 10
+  terms:
+    - emri
+    - extreme mass ratio inspiral
+    - extreme-mass-ratio inspiral
+    - intermediate mass ratio inspiral
+    - imri
+    - mass-ratio inspiral
+  label: Direct EMRI/IMRI
+
+dynamics:
+  weight: 4
+  terms:
+    - loss cone
+    - resonant relaxation
+    - scalar resonant relaxation
+    - vector resonant relaxation
+    - non-resonant relaxation
+    - two-body relaxation
+    - mass segregation
+    - bahcall-wolf
+    - stellar cusp
+    - nuclear star cluster
+    - nsc
+    - direct capture
+    - plunge
+    - schwarzschild barrier
+    - galactic nucleus
+    - galactic nuclei
+    - dense stellar cluster
+    - tidal separation
+    - binary disruption
+  label: Dynamics and Formation
+
+waveform:
+  weight: 4
+  terms:
+    - teukolsky
+    - teukolsky equation
+    - self-force
+    - gravitational self-force
+    - first-order self-force
+    - second-order self-force
+    - adiabatic inspiral
+    - kerr geodesic
+    - orbital resonance
+    - transient resonance
+    - resonance crossing
+    - gravitational perturbation
+    - radiation reaction
+    - radiation-reaction
+    - kludge waveform
+    - analytic kludge
+    - augmented analytic kludge
+    - aak
+    - ak waveform
+    - pn5aak
+    - few
+  label: Strong-field and Waveform Theory
+
+detection:
+  weight: 3
+  terms:
+    - lisa emri
+    - taiji emri
+    - tianqin emri
+    - space-based gravitational wave detector
+    - parameter estimation
+    - fisher matrix
+    - bayesian inference
+    - detectability
+    - signal-to-noise ratio
+    - snr
+    - waveform model
+    - confusion noise
+    - tdi
+    - response
+    - noise
+    - orbit
+    - sensitivity
+    - space-based
+    - space based
+  label: Mission and Data Analysis
+
+context_terms:
+  weight: 2
+  terms:
+    - black hole
+    - massive black hole
+    - supermassive black hole
+    - mbh
+    - smbh
+    - kerr
+    - galactic nucleus
+    - galactic nuclei
+    - nuclear star cluster
+    - gravitational wave
+    - space-based detector
+    - lisa
+    - taiji
+    - tianqin
+    - inspiral
+  label: Context
+
+negative_terms:
+  terms:
+    - qpe
+    - tidal disruption event
+    - tde
+  label: Excluded
+
+thresholds:
+  core: 10
+  relevant: 6
+  optional: 3
